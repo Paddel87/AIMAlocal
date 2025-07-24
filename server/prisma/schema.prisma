@@ -1,0 +1,483 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  username  String   @unique
+  password  String
+  role      UserRole @default(PERSONAL)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  jobs         Job[]
+  personDossiers PersonDossier[]
+  apiKeys      ApiKey[]
+  sessions     Session[]
+  webhooks     Webhook[]
+  mediaFiles   MediaFile[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  key       String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  lastUsed  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+model Job {
+  id                String      @id @default(cuid())
+  userId            String
+  name              String
+  status            JobStatus   @default(PENDING)
+  type              JobType
+  priority          JobPriority @default(NORMAL)
+  progress          Float       @default(0)
+  gpuInstanceId     String?
+  estimatedDuration Int? // in seconds
+  actualDuration    Int? // in seconds
+  estimatedCost     Float
+  actualCost        Float?
+  currency          String      @default("EUR")
+  error             String?
+  settings          Json
+  createdAt         DateTime    @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  updatedAt         DateTime    @updatedAt
+
+  // Relations
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaFiles  MediaFile[]
+  results     JobResult[]
+  batchJobs   BatchJob[]
+  gpuInstance GpuInstance?  @relation(fields: [gpuInstanceId], references: [id])
+
+  @@map("jobs")
+}
+
+model BatchJob {
+  id            String        @id @default(cuid())
+  name          String
+  status        BatchJobStatus @default(PENDING)
+  progress      Float         @default(0)
+  estimatedCost Float
+  actualCost    Float?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  jobs Job[]
+
+  @@map("batch_jobs")
+}
+
+model MediaFile {
+  id           String    @id @default(cuid())
+  userId       String
+  jobId        String?
+  filename     String
+  originalName String
+  filePath     String
+  type         String    // IMAGE, VIDEO, AUDIO
+  mimeType     String
+  size         Int
+  duration     Int? // for video/audio in seconds
+  format       String
+  thumbnailUrl String?
+  url          String?
+  metadata     Json?
+  uploadedAt   DateTime  @default(now())
+
+  // Relations
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job             Job?             @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  results         JobResult[]
+  analysisResults AnalysisResult[]
+
+  @@map("media_files")
+}
+
+model JobResult {
+  id          String     @id @default(cuid())
+  jobId       String
+  mediaFileId String?
+  type        ResultType
+  confidence  Float
+  data        Json
+  timestamp   Int? // for video results in seconds
+  boundingBox Json? // {x, y, width, height}
+  createdAt   DateTime   @default(now())
+
+  // Relations
+  job       Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  mediaFile MediaFile? @relation(fields: [mediaFileId], references: [id], onDelete: SetNull)
+
+  @@map("job_results")
+}
+
+model PersonDossier {
+  id        String   @id @default(cuid())
+  userId    String
+  personId  String   @unique // Auto-generated or user-defined
+  name      String? // User-editable name
+  tempId    String? // Original temporary ID
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recognitions      PersonRecognition[]
+  transcriptions    PersonTranscription[]
+  idHistory         PersonIdHistory[]
+  assignmentHistory PersonAssignmentHistory[]
+  persons           Person[]
+
+  @@map("person_dossiers")
+}
+
+model Person {
+  id              String   @id @default(cuid())
+  dossierId       String?
+  name            String?
+  description     String?
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  dossier         PersonDossier? @relation(fields: [dossierId], references: [id], onDelete: SetNull)
+  faceEncodings   FaceEncoding[]
+
+  @@map("persons")
+}
+
+model FaceEncoding {
+  id        String   @id @default(cuid())
+  personId  String
+  encoding  String   // JSON string of face encoding array
+  confidence Float   @default(0.8)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  // Relations
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@map("face_encodings")
+}
+
+model AnalysisResult {
+  id             String    @id @default(cuid())
+  mediaFileId    String
+  type           String    // FACE_DETECTION, TRANSCRIPTION, FACE_RECOGNITION
+  result         String    // JSON string of analysis result
+  confidence     Float     @default(0.0)
+  processingTime Int       @default(0) // in milliseconds
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+
+  // Relations
+  mediaFile      MediaFile @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+
+  @@map("analysis_results")
+}
+
+model PersonRecognition {
+  id             String   @id @default(cuid())
+  personDossierId String
+  jobId          String
+  mediaFileId    String
+  confidence     Float
+  features       Json // detected features
+  boundingBox    Json
+  timestamp      Int? // for video
+  biometricData  Json?
+  createdAt      DateTime @default(now())
+
+  // Relations
+  personDossier PersonDossier @relation(fields: [personDossierId], references: [id], onDelete: Cascade)
+
+  @@map("person_recognitions")
+}
+
+model PersonTranscription {
+  id              String   @id @default(cuid())
+  personDossierId String
+  jobId           String
+  mediaFileId     String
+  text            String
+  startTime       Float
+  endTime         Float
+  confidence      Float
+  language        String
+  emotion         String?
+  keywords        String[]
+  createdAt       DateTime @default(now())
+
+  // Relations
+  personDossier PersonDossier @relation(fields: [personDossierId], references: [id], onDelete: Cascade)
+
+  @@map("person_transcriptions")
+}
+
+model PersonIdHistory {
+  id              String   @id @default(cuid())
+  personDossierId String
+  oldId           String
+  newId           String
+  changedBy       String
+  reason          String?
+  createdAt       DateTime @default(now())
+
+  // Relations
+  personDossier PersonDossier @relation(fields: [personDossierId], references: [id], onDelete: Cascade)
+
+  @@map("person_id_history")
+}
+
+model PersonAssignmentHistory {
+  id                String   @id @default(cuid())
+  personDossierId   String
+  jobId             String
+  action            String // "auto_assigned", "manual_assigned", "unassigned"
+  previousPersonId  String?
+  confidence        Float?
+  changedBy         String
+  createdAt         DateTime @default(now())
+
+  // Relations
+  personDossier PersonDossier @relation(fields: [personDossierId], references: [id], onDelete: Cascade)
+
+  @@map("person_assignment_history")
+}
+
+model GpuInstance {
+  id           String           @id @default(cuid())
+  name         String
+  type         String
+  provider     GpuProvider
+  providerId   String // ID from the provider
+  status       GpuStatus        @default(OFFLINE)
+  location     String
+  utilization  Float            @default(0)
+  temperature  Float            @default(0)
+  powerUsage   Float            @default(0)
+  memoryTotal  Int // in MB
+  memoryUsed   Int              @default(0)
+  costPerHour  Float
+  currency     String           @default("EUR")
+  metadata     Json?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  lastSeen     DateTime?
+
+  // Relations
+  jobs Job[]
+
+  @@map("gpu_instances")
+}
+
+model MLModel {
+  id          String      @id @default(cuid())
+  name        String
+  type        ModelType
+  version     String
+  provider    String
+  modelPath   String
+  isActive    Boolean     @default(true)
+  description String?
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("ml_models")
+}
+
+model StorageProvider {
+  id          String        @id @default(cuid())
+  name        String
+  type        StorageType
+  config      Json // API keys, endpoints, etc.
+  isActive    Boolean       @default(true)
+  isDefault   Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("storage_providers")
+}
+
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_config")
+}
+
+model Webhook {
+  id          String            @id @default(cuid())
+  userId      String
+  url         String
+  events      WebhookEvent[]
+  secret      String
+  status      WebhookStatus     @default(ACTIVE)
+  description String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  // Relations
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries  WebhookDelivery[]
+
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id          String    @id @default(cuid())
+  webhookId   String
+  event       String
+  payload     Json
+  success     Boolean   @default(false)
+  statusCode  Int?
+  response    String?
+  error       String?
+  deliveredAt DateTime  @default(now())
+
+  // Relations
+  webhook     Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@map("webhook_deliveries")
+}
+
+// Enums
+enum UserRole {
+  PERSONAL
+  ENTERPRISE
+  ADMINISTRATOR
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum JobType {
+  SINGLE
+  BATCH
+  FACE_DETECTION
+  TRANSCRIPTION
+  BATCH_PROCESSING
+  FACE_RECOGNITION
+}
+
+enum JobPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum BatchJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ResultType {
+  PERSON_RECOGNITION
+  OBJECT_DETECTION
+  TRANSCRIPTION
+  NSFW_ANALYSIS
+  SENTIMENT_ANALYSIS
+  KEYWORD_EXTRACTION
+  FACE_DETECTION
+  FACE_RECOGNITION
+  AUDIO_TRANSCRIPTION
+}
+
+enum GpuProvider {
+  RUNPOD
+  VAST_AI
+  LOCAL
+}
+
+enum GpuStatus {
+  ONLINE
+  BUSY
+  OFFLINE
+  MAINTENANCE
+}
+
+enum ModelType {
+  COMPUTER_VISION
+  FACE_RECOGNITION
+  SPEECH_TO_TEXT
+  LLM
+  OBJECT_DETECTION
+  NSFW_DETECTION
+}
+
+enum StorageType {
+  LOCAL
+  AWS_S3
+  GOOGLE_CLOUD
+  DROPBOX
+  ONEDRIVE
+}
+
+enum WebhookStatus {
+  ACTIVE
+  INACTIVE
+  FAILED
+}
+
+enum WebhookEvent {
+  JOB_CREATED
+  JOB_COMPLETED
+  JOB_FAILED
+  USER_CREATED
+  USER_UPDATED
+  MEDIA_UPLOADED
+  PERSON_RECOGNIZED
+  GPU_INSTANCE_CREATED
+  GPU_INSTANCE_TERMINATED
+  WEBHOOK_TEST
+}

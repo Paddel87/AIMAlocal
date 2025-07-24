@@ -1,0 +1,2 @@
+This is a test text file for testing file type validation.
+It should not be accepted for image or audio processing.
