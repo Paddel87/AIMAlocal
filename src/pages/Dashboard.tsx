@@ -107,38 +107,15 @@ export default function Dashboard() {
     return sum + cost;
   }, 0);
 
-  const recentActivities = [
-    {
-      title: 'Video Analysis Completed',
-      description: 'Job "Sample Video Analysis" finished successfully',
-      time: '2 min ago',
-      status: 'success' as const
-    },
-    {
-      title: 'New Person Detected',
-      description: 'Person_003 identified in batch processing job',
-      time: '5 min ago',
-      status: 'info' as const
-    },
-    {
-      title: 'GPU Instance Online',
-      description: 'RTX 4090 #3 came back online after maintenance',
-      time: '12 min ago',
-      status: 'success' as const
-    },
-    {
-      title: 'High GPU Temperature',
-      description: 'RTX 4090 #2 temperature reached 82°C',
-      time: '18 min ago',
-      status: 'warning' as const
-    },
-    {
-      title: 'Batch Job Started',
-      description: 'Processing 15 images for person recognition',
-      time: '25 min ago',
-      status: 'info' as const
-    }
-  ];
+  // Get recent activities from jobs data
+  const recentActivities = jobs.slice(0, 5).map(job => ({
+    title: `${job.type} Job`,
+    description: job.description || `${job.type} - ${job.fileName}`,
+    time: new Date(job.createdAt).toLocaleString(),
+    status: job.status === 'completed' ? 'success' as const : 
+            job.status === 'failed' ? 'error' as const :
+            job.status === 'processing' ? 'info' as const : 'warning' as const
+  }));
 
   return (
     <div className="space-y-6">

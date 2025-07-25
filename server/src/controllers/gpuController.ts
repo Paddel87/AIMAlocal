@@ -10,106 +10,21 @@ import {
   asyncHandler 
 } from '../middleware/errorHandler';
 import { UserRole, GpuProvider, GpuStatus } from '@prisma/client';
+import { GpuProviderManager, CreateGpuInstanceRequest } from '../services/gpuProviderManager';
+import { BatchProcessingService } from '../services/batchProcessingService';
 
-// Mock GPU provider APIs (in real implementation, these would be actual API calls)
-const mockGpuProviders = {
-  RUNPOD: {
-    createInstance: async (config: any) => {
-      return {
-        instanceId: `runpod_${Date.now()}`,
-        status: 'starting',
-        ipAddress: '192.168.1.100',
-        cost: 0.5,
-      };
-    },
-    getInstanceStatus: async (instanceId: string) => {
-      return {
-        status: 'running',
-        uptime: 3600,
-        metrics: {
-          cpuUsage: 45,
-          memoryUsage: 60,
-          gpuUsage: 80,
-        },
-      };
-    },
-    terminateInstance: async (instanceId: string) => {
-      return { success: true };
-    },
-  },
-  VAST_AI: {
-    createInstance: async (config: any) => {
-      return {
-        instanceId: `vast_${Date.now()}`,
-        status: 'starting',
-        ipAddress: '192.168.1.101',
-        cost: 0.3,
-      };
-    },
-    getInstanceStatus: async (instanceId: string) => {
-      return {
-        status: 'running',
-        uptime: 1800,
-        metrics: {
-          cpuUsage: 30,
-          memoryUsage: 40,
-          gpuUsage: 90,
-        },
-      };
-    },
-    terminateInstance: async (instanceId: string) => {
-      return { success: true };
-    },
-  },
-  LAMBDA_LABS: {
-    createInstance: async (config: any) => {
-      return {
-        instanceId: `lambda_${Date.now()}`,
-        status: 'starting',
-        ipAddress: '192.168.1.102',
-        cost: 0.8,
-      };
-    },
-    getInstanceStatus: async (instanceId: string) => {
-      return {
-        status: 'running',
-        uptime: 7200,
-        metrics: {
-          cpuUsage: 55,
-          memoryUsage: 70,
-          gpuUsage: 95,
-        },
-      };
-    },
-    terminateInstance: async (instanceId: string) => {
-      return { success: true };
-    },
-  },
-  PAPERSPACE: {
-    createInstance: async (config: any) => {
-      return {
-        instanceId: `paperspace_${Date.now()}`,
-        status: 'starting',
-        ipAddress: '192.168.1.103',
-        cost: 0.6,
-      };
-    },
-    getInstanceStatus: async (instanceId: string) => {
-      return {
-        status: 'running',
-        uptime: 5400,
-        metrics: {
-          cpuUsage: 40,
-          memoryUsage: 55,
-          gpuUsage: 85,
-        },
-      };
-    },
-    terminateInstance: async (instanceId: string) => {
-      return { success: true };
-    },
-  },
-};
+// Initialize GPU Provider Manager
+const gpuManager = new GpuProviderManager({
+  runpod: process.env.RUNPOD_API_KEY ? {
+    apiKey: process.env.RUNPOD_API_KEY,
+  } : undefined,
+  vastai: process.env.VASTAI_API_KEY ? {
+    apiKey: process.env.VASTAI_API_KEY,
+  } : undefined,
+});
+
+// Initialize Batch Processing Service
+const batchService = new BatchProcessingService(gpuManager);
 
 // Get all GPU instances
 export const getGpuInstances = asyncHandler(async (req: Request, res: Response) => {
@@ -123,75 +38,99 @@ export const getGpuInstances = asyncHandler(async (req: Request, res: Response) 
   const skip = (Number(page) - 1) * Number(limit);
   const take = Number(limit);
 
-  // Build where clause
-  const where: any = {};
-  
-  // Non-admin users can only see their own instances
-  if (currentUser.role !== UserRole.ADMIN) {
-    where.userId = currentUser.id;
-  } else if (userId) {
-    where.userId = userId as string;
-  }
+  try {
+    // Get instances from GPU providers
+    let providerInstances = [];
+    if (provider) {
+      providerInstances = await gpuManager.getInstancesByProvider(provider as GpuProvider);
+    } else {
+      providerInstances = await gpuManager.getAllInstances();
+    }
 
-  if (provider) {
-    where.provider = provider as GpuProvider;
-  }
+    // Get database instances for additional metadata
+    const where: any = {};
+    
+    // Non-admin users can only see their own instances
+    if (currentUser.role !== UserRole.ADMIN) {
+      where.userId = currentUser.id;
+    } else if (userId) {
+      where.userId = userId as string;
+    }
 
-  if (status) {
-    where.status = status as GpuStatus;
-  }
+    if (provider) {
+      where.provider = provider as GpuProvider;
+    }
 
-  const [instances, total] = await Promise.all([
-    prisma.gpuInstance.findMany({
-      where,
-      skip,
-      take,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
+    if (status) {
+      where.status = status as GpuStatus;
+    }
+
+    const [dbInstances, total] = await Promise.all([
+      prisma.gpuInstance.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+          jobs: {
+            select: {
+              id: true,
+              type: true,
+              status: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 5,
+          },
+          _count: {
+            select: {
+              jobs: true,
+            },
           },
         },
-        jobs: {
-          select: {
-            id: true,
-            type: true,
-            status: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-        },
-        _count: {
-          select: {
-            jobs: true,
-          },
+      }),
+      prisma.gpuInstance.count({ where }),
+    ]);
+
+    // Merge provider data with database data
+    const mergedInstances = dbInstances.map(dbInstance => {
+      const providerInstance = providerInstances.find(pi => pi.id === dbInstance.externalId);
+      return {
+        ...dbInstance,
+        providerData: providerInstance,
+        realTimeStatus: providerInstance?.status || dbInstance.status,
+        metrics: providerInstance?.metrics,
+      };
+    });
+
+    const totalPages = Math.ceil(total / take);
+
+    res.json({
+      success: true,
+      data: {
+        instances: mergedInstances,
+        pagination: {
+          page: Number(page),
+          limit: take,
+          total,
+          totalPages,
+          hasNext: Number(page) < totalPages,
+          hasPrev: Number(page) > 1,
         },
       },
-    }),
-    prisma.gpuInstance.count({ where }),
-  ]);
-
-  const totalPages = Math.ceil(total / take);
-
-  res.json({
-    success: true,
-    data: {
-      instances,
-      pagination: {
-        page: Number(page),
-        limit: take,
-        total,
-        totalPages,
-        hasNext: Number(page) < totalPages,
-        hasPrev: Number(page) > 1,
-      },
-    },
-  });
+    });
+  } catch (error) {
+    logger.error('Failed to get GPU instances:', error);
+    throw new ExternalServiceError('Failed to retrieve GPU instances from providers');
+  }
 });
 
 // Get GPU instance by ID
@@ -240,10 +179,32 @@ export const getGpuInstanceById = asyncHandler(async (req: Request, res: Respons
     throw new AuthorizationError('Access denied');
   }
 
-  res.json({
-    success: true,
-    data: { instance },
-  });
+  try {
+    // Get real-time data from provider
+    let providerData = null;
+    if (instance.externalId) {
+      providerData = await gpuManager.getInstance(instance.provider as GpuProvider, instance.externalId);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        instance: {
+          ...instance,
+          providerData,
+          realTimeStatus: providerData?.status || instance.status,
+          metrics: providerData?.metrics,
+        },
+      },
+    });
+  } catch (error) {
+    logger.warn('Failed to get provider data for instance:', error);
+    // Return database data if provider call fails
+    res.json({
+      success: true,
+      data: { instance },
+    });
+  }
 });
 
 // Create new GPU instance
@@ -275,16 +236,13 @@ export const createGpuInstance = asyncHandler(async (req: Request, res: Response
   }
 
   try {
-    // Create instance with provider
-    const providerApi = mockGpuProviders[provider as keyof typeof mockGpuProviders];
-    if (!providerApi) {
-      throw new ValidationError('Unsupported GPU provider');
-    }
-
-    const providerResponse = await providerApi.createInstance({
+    // Create instance using GPU provider manager
+    const createRequest: CreateGpuInstanceRequest = {
       instanceType,
       configuration,
-    });
+    };
+
+    const providerInstance = await gpuManager.createInstance(provider as GpuProvider, createRequest);
 
     // Create instance record
     const instance = await prisma.gpuInstance.create({
@@ -292,11 +250,21 @@ export const createGpuInstance = asyncHandler(async (req: Request, res: Response
         provider,
         instanceType,
         status: GpuStatus.STARTING,
-        externalId: providerResponse.instanceId,
-        ipAddress: providerResponse.ipAddress,
+        externalId: providerInstance.id,
+        ipAddress: providerInstance.ipAddress,
         configuration,
-        costPerHour: providerResponse.cost,
+        costPerHour: providerInstance.costPerHour || 0,
         userId: currentUser.id,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
     });
 
@@ -312,7 +280,10 @@ export const createGpuInstance = asyncHandler(async (req: Request, res: Response
     res.status(201).json({
       success: true,
       message: 'GPU instance created successfully',
-      data: { instance },
+      data: {
+        instance,
+        providerData: providerInstance,
+      },
     });
   } catch (error) {
     logger.error('Failed to create GPU instance', { error, provider, userId: currentUser.id });
@@ -405,9 +376,8 @@ export const terminateGpuInstance = asyncHandler(async (req: Request, res: Respo
 
   try {
     // Terminate with provider
-    const providerApi = mockGpuProviders[instance.provider as keyof typeof mockGpuProviders];
-    if (providerApi && instance.externalId) {
-      await providerApi.terminateInstance(instance.externalId);
+    if (instance.externalId) {
+      await gpuManager.terminateInstance(instance.provider as GpuProvider, instance.externalId);
     }
 
     // Update instance status
@@ -478,11 +448,8 @@ export const getGpuInstanceMetrics = asyncHandler(async (req: Request, res: Resp
   let currentMetrics = null;
   if (instance.status === GpuStatus.RUNNING && instance.externalId) {
     try {
-      const providerApi = mockGpuProviders[instance.provider as keyof typeof mockGpuProviders];
-      if (providerApi) {
-        const status = await providerApi.getInstanceStatus(instance.externalId);
-        currentMetrics = status.metrics;
-      }
+      const providerInstance = await gpuManager.getInstance(instance.provider as GpuProvider, instance.externalId);
+      currentMetrics = providerInstance?.metrics;
     } catch (error) {
       logger.warn('Failed to get current metrics from provider', { error, instanceId: id });
     }
@@ -601,4 +568,153 @@ export const getGpuProviders = asyncHandler(async (req: Request, res: Response) 
     success: true,
     data: { providers },
   });
+});
+
+// Batch Processing Endpoints
+
+// Submit batch job
+export const submitBatchJob = asyncHandler(async (req: Request, res: Response) => {
+  const { jobs, priority = 'medium', estimatedDuration } = req.body;
+  const currentUser = req.user;
+
+  if (!currentUser) {
+    throw new NotFoundError('User not authenticated');
+  }
+
+  try {
+    const batchJob = await batchService.submitBatchJob({
+      jobs,
+      userId: currentUser.id,
+      priority,
+      estimatedDuration,
+    });
+
+    logger.info(`Batch job submitted: ${batchJob.id} for user ${currentUser.id}`);
+
+    res.status(201).json({
+      success: true,
+      data: batchJob,
+    });
+  } catch (error) {
+    logger.error('Failed to submit batch job:', error);
+    throw new ExternalServiceError(`Failed to submit batch job: ${error.message}`);
+  }
+});
+
+// Get batch job status
+export const getBatchJobStatus = asyncHandler(async (req: Request, res: Response) => {
+  const { jobId } = req.params;
+  const currentUser = req.user;
+
+  if (!currentUser) {
+    throw new NotFoundError('User not authenticated');
+  }
+
+  try {
+    const status = await batchService.getBatchJobStatus(jobId);
+    
+    // Check access permissions
+    if (currentUser.role !== UserRole.ADMIN && status.userId !== currentUser.id) {
+      throw new AuthorizationError('Access denied to this batch job');
+    }
+
+    res.json({
+      success: true,
+      data: status,
+    });
+  } catch (error) {
+    logger.error('Failed to get batch job status:', error);
+    throw new ExternalServiceError(`Failed to get batch job status: ${error.message}`);
+  }
+});
+
+// Cancel batch job
+export const cancelBatchJob = asyncHandler(async (req: Request, res: Response) => {
+  const { jobId } = req.params;
+  const currentUser = req.user;
+
+  if (!currentUser) {
+    throw new NotFoundError('User not authenticated');
+  }
+
+  try {
+    // First check if user has access to this job
+    const status = await batchService.getBatchJobStatus(jobId);
+    if (currentUser.role !== UserRole.ADMIN && status.userId !== currentUser.id) {
+      throw new AuthorizationError('Access denied to this batch job');
+    }
+
+    await batchService.cancelBatchJob(jobId);
+
+    logger.info(`Batch job cancelled: ${jobId} by user ${currentUser.id}`);
+
+    res.json({
+      success: true,
+      message: 'Batch job cancelled successfully',
+    });
+  } catch (error) {
+    logger.error('Failed to cancel batch job:', error);
+    throw new ExternalServiceError(`Failed to cancel batch job: ${error.message}`);
+  }
+});
+
+// Get batch processing statistics
+export const getBatchStats = asyncHandler(async (req: Request, res: Response) => {
+  const currentUser = req.user;
+
+  if (!currentUser) {
+    throw new NotFoundError('User not authenticated');
+  }
+
+  try {
+    const stats = await batchService.getBatchStats(currentUser.id);
+
+    res.json({
+      success: true,
+      data: stats,
+    });
+  } catch (error) {
+    logger.error('Failed to get batch stats:', error);
+    throw new ExternalServiceError(`Failed to get batch statistics: ${error.message}`);
+  }
+});
+
+// Get available GPU offers
+export const getGpuOffers = asyncHandler(async (req: Request, res: Response) => {
+  const { provider, gpuType, maxPrice } = req.query;
+  const currentUser = req.user;
+
+  if (!currentUser) {
+    throw new NotFoundError('User not authenticated');
+  }
+
+  try {
+    let offers = [];
+    
+    if (provider) {
+      offers = await gpuManager.getAvailableOffers(provider as GpuProvider, {
+        gpuType: gpuType as string,
+        maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
+      });
+    } else {
+      // Get offers from all providers
+      const runpodOffers = await gpuManager.getAvailableOffers(GpuProvider.RUNPOD, {
+        gpuType: gpuType as string,
+        maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
+      });
+      const vastaiOffers = await gpuManager.getAvailableOffers(GpuProvider.VASTAI, {
+        gpuType: gpuType as string,
+        maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
+      });
+      offers = [...runpodOffers, ...vastaiOffers];
+    }
+
+    res.json({
+      success: true,
+      data: offers,
+    });
+  } catch (error) {
+    logger.error('Failed to get GPU offers:', error);
+    throw new ExternalServiceError(`Failed to get GPU offers: ${error.message}`);
+  }
 });

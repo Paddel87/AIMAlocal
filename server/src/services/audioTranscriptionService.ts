@@ -94,7 +94,7 @@ class AudioTranscriptionService {
 
         const features: AudioFeatures = {
           duration: parseFloat(audioStream.duration || '0'),
-          sampleRate: parseInt(audioStream.sample_rate || '0'),
+          sampleRate: parseInt(String(audioStream.sample_rate || '0')),
           channels: audioStream.channels || 0,
           bitrate: parseInt(audioStream.bit_rate || '0'),
           format: audioStream.codec_name || 'unknown'
@@ -119,7 +119,7 @@ class AudioTranscriptionService {
         })
         .on('error', (err) => {
           logger.error('Audio conversion failed:', err);
-          reject(new Error(`Audio conversion failed: ${err.message}`));
+          reject(new Error(`Audio conversion failed: ${err instanceof Error ? err.message : 'Unknown error'}`));
         })
         .save(outputPath);
     });
@@ -161,7 +161,7 @@ class AudioTranscriptionService {
       };
     } catch (error) {
       logger.error('Whisper transcription failed:', error);
-      throw new Error(`Transcription failed: ${error.message}`);
+      throw new Error(`Transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -223,12 +223,12 @@ class AudioTranscriptionService {
             wordCount: fullText.split(/\s+/).filter(word => word.length > 0).length
           });
         } catch (parseError) {
-          reject(new Error(`Failed to parse Whisper output: ${parseError.message}`));
+          reject(new Error(`Failed to parse Whisper output: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`));
         }
       });
 
       whisper.on('error', (error) => {
-        reject(new Error(`Whisper process error: ${error.message}`));
+        reject(new Error(`Whisper process error: ${error instanceof Error ? error.message : 'Unknown error'}`));
       });
     });
   }
@@ -260,7 +260,7 @@ class AudioTranscriptionService {
       return mockTranscription;
     } catch (error) {
       logger.error('Fallback transcription failed:', error);
-      throw new Error(`Fallback transcription failed: ${error.message}`);
+      throw new Error(`Fallback transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -316,7 +316,7 @@ class AudioTranscriptionService {
       return result;
     } catch (error) {
       logger.error('Video transcription failed:', error);
-      throw new Error(`Video transcription failed: ${error.message}`);
+      throw new Error(`Video transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

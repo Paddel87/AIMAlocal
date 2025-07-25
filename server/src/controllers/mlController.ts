@@ -10,6 +10,8 @@ import {
 } from '../middleware/errorHandler';
 import { faceDetectionService, FaceDetectionResult } from '../services/faceDetectionService';
 import { audioTranscriptionService, TranscriptionResult } from '../services/audioTranscriptionService';
+import { videoProcessingService, VideoProcessingResult } from '../services/videoProcessingService';
+import { mlModelManager } from '../services/mlModelManager';
 import { JobStatus, JobType } from '@prisma/client';
 import path from 'path';
 import fs from 'fs/promises';
@@ -493,6 +495,351 @@ export const getAnalysisResults = asyncHandler(async (req: Request, res: Respons
   });
 });
 
+// Video Processing API
+export const processVideo = asyncHandler(async (req: Request, res: Response) => {
+  const { mediaId } = req.params;
+  const { 
+    extractFrames = true, 
+    frameInterval = 1, 
+    maxFrames = 50, 
+    detectFaces = true, 
+    transcribeAudio = true 
+  } = req.body;
+  const currentUser = req.user;
+
+  if (!currentUser) {
+    throw new NotFoundError('User not authenticated');
+  }
+
+  // Get media file from database
+  const mediaFile = await prisma.mediaFile.findUnique({
+    where: { id: mediaId },
+    include: { user: true }
+  });
+
+  if (!mediaFile) {
+    throw new NotFoundError('Media file not found');
+  }
+
+  // Check if user has access to this media file
+  if (mediaFile.userId !== currentUser.id && currentUser.role !== 'ADMIN') {
+    throw new NotFoundError('Access denied');
+  }
+
+  // Check if it's a video file
+  if (mediaFile.type !== 'VIDEO') {
+    throw new ValidationError('Video processing only supports video files');
+  }
+
+  try {
+    // Process video using the video processing service
+    const result = await videoProcessingService.processVideo(mediaFile.filePath, {
+      extractFrames,
+      frameInterval,
+      maxFrames,
+      detectFaces,
+      transcribeAudio
+    });
+
+    // Store results in database
+    const analysisResult = await prisma.analysisResult.create({
+      data: {
+        mediaFileId: mediaFile.id,
+        type: 'VIDEO_PROCESSING',
+        result: JSON.stringify(result),
+        confidence: result.facesDetected > 0 ? 0.85 : 0.5,
+        processingTime: result.processingTime
+      }
+    });
+
+    // Cache result in Redis
+    await redis.setex(
+      `video_processing:${mediaId}`,
+      3600, // 1 hour
+      JSON.stringify(result)
+    );
+
+    logger.info(`Video processing completed for media ${mediaId}`);
+
+    res.json({
+      success: true,
+      data: {
+        analysisId: analysisResult.id,
+        result,
+        mediaFile: {
+          id: mediaFile.id,
+          filename: mediaFile.filename,
+          type: mediaFile.type
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Video processing failed:', error);
+    throw new ValidationError(`Video processing failed: ${error.message}`);
+  }
+});
+
+// ML Model Management API
+export const getModelStatus = asyncHandler(async (req: Request, res: Response) => {
+  const currentUser = req.user;
+
+  if (!currentUser || currentUser.role !== 'ADMIN') {
+    throw new NotFoundError('Admin access required');
+  }
+
+  try {
+    const models = await mlModelManager.getAllModels();
+    const systemStatus = await mlModelManager.getSystemStatus();
+    const performanceMetrics = await mlModelManager.getAllPerformanceMetrics();
+
+    res.json({
+      success: true,
+      data: {
+        models,
+        systemStatus,
+        performanceMetrics
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to get model status:', error);
+    throw new ValidationError(`Failed to get model status: ${error.message}`);
+  }
+});
+
+export const updateMLConfiguration = asyncHandler(async (req: Request, res: Response) => {
+  const currentUser = req.user;
+  const { config } = req.body;
+
+  if (!currentUser || currentUser.role !== 'ADMIN') {
+    throw new NotFoundError('Admin access required');
+  }
+
+  if (!config) {
+    throw new ValidationError('Configuration is required');
+  }
+
+  try {
+    await mlModelManager.updateConfiguration(config);
+    const updatedConfig = await mlModelManager.getConfiguration();
+
+    logger.info('ML configuration updated by admin');
+
+    res.json({
+      success: true,
+      data: {
+        config: updatedConfig,
+        message: 'Configuration updated successfully'
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to update ML configuration:', error);
+    throw new ValidationError(`Failed to update configuration: ${error.message}`);
+  }
+});
+
+export const optimizeModels = asyncHandler(async (req: Request, res: Response) => {
+  const currentUser = req.user;
+
+  if (!currentUser || currentUser.role !== 'ADMIN') {
+    throw new NotFoundError('Admin access required');
+  }
+
+  try {
+    await mlModelManager.optimizeModels();
+    const systemStatus = await mlModelManager.getSystemStatus();
+
+    logger.info('Model optimization completed');
+
+    res.json({
+      success: true,
+      data: {
+        message: 'Model optimization completed',
+        systemStatus
+      }
+    });
+  } catch (error) {
+    logger.error('Model optimization failed:', error);
+    throw new ValidationError(`Model optimization failed: ${error.message}`);
+  }
+});
+
+export const exportMLData = asyncHandler(async (req: Request, res: Response) => {
+  const currentUser = req.user;
+
+  if (!currentUser || currentUser.role !== 'ADMIN') {
+    throw new NotFoundError('Admin access required');
+  }
+
+  try {
+    const exportData = await mlModelManager.exportModelData();
+
+    res.json({
+      success: true,
+      data: exportData
+    });
+  } catch (error) {
+    logger.error('Failed to export ML data:', error);
+    throw new ValidationError(`Failed to export ML data: ${error.message}`);
+  }
+});
+
+// Enhanced Batch Processing with Video Support
+export const processBatchAdvanced = asyncHandler(async (req: Request, res: Response) => {
+  const { mediaIds, operations, options = {} } = req.body;
+  const currentUser = req.user;
+
+  if (!currentUser) {
+    throw new NotFoundError('User not authenticated');
+  }
+
+  if (!Array.isArray(mediaIds) || mediaIds.length === 0) {
+    throw new ValidationError('Media IDs array is required');
+  }
+
+  if (!Array.isArray(operations) || operations.length === 0) {
+    throw new ValidationError('Operations array is required');
+  }
+
+  try {
+    // Create a batch job
+    const batchJob = await prisma.job.create({
+      data: {
+        userId: currentUser.id,
+        type: 'BATCH_PROCESSING',
+        status: 'PENDING',
+        metadata: JSON.stringify({
+          mediaIds,
+          operations,
+          options,
+          totalFiles: mediaIds.length
+        })
+      }
+    });
+
+    // Process in background using ML Model Manager
+    setImmediate(async () => {
+      try {
+        await prisma.job.update({
+          where: { id: batchJob.id },
+          data: { status: 'PROCESSING', startedAt: new Date() }
+        });
+
+        const results = [];
+        
+        for (const mediaId of mediaIds) {
+          const mediaFile = await prisma.mediaFile.findUnique({
+            where: { id: mediaId }
+          });
+
+          if (!mediaFile || (mediaFile.userId !== currentUser.id && currentUser.role !== 'ADMIN')) {
+            continue;
+          }
+
+          for (const operation of operations) {
+            try {
+              let result;
+              let processingResult;
+              
+              switch (operation) {
+                case 'face_detection':
+                  if (['IMAGE', 'VIDEO'].includes(mediaFile.type)) {
+                    processingResult = await mlModelManager.processImage(mediaFile.filePath);
+                    result = processingResult.faces;
+                  }
+                  break;
+                  
+                case 'transcription':
+                  if (['AUDIO', 'VIDEO'].includes(mediaFile.type)) {
+                    processingResult = await mlModelManager.processAudio(mediaFile.filePath);
+                    result = processingResult.transcription;
+                  }
+                  break;
+                  
+                case 'video_processing':
+                  if (mediaFile.type === 'VIDEO') {
+                    processingResult = await mlModelManager.processVideo(mediaFile.filePath);
+                    result = processingResult.result;
+                  }
+                  break;
+              }
+
+              if (result && processingResult) {
+                await prisma.analysisResult.create({
+                  data: {
+                    mediaFileId: mediaFile.id,
+                    type: operation.toUpperCase(),
+                    result: JSON.stringify(result),
+                    confidence: 0.8,
+                    processingTime: processingResult.processingTime
+                  }
+                });
+
+                results.push({
+                  mediaId: mediaFile.id,
+                  operation,
+                  success: processingResult.success,
+                  result,
+                  processingTime: processingResult.processingTime
+                });
+              }
+            } catch (error) {
+              logger.error(`Batch operation ${operation} failed for media ${mediaId}:`, error);
+              results.push({
+                mediaId: mediaFile.id,
+                operation,
+                success: false,
+                error: error.message
+              });
+            }
+          }
+        }
+
+        // Update job with results
+        await prisma.job.update({
+          where: { id: batchJob.id },
+          data: {
+            status: 'COMPLETED',
+            completedAt: new Date(),
+            result: JSON.stringify({
+              processedFiles: results.length,
+              successfulOperations: results.filter(r => r.success).length,
+              failedOperations: results.filter(r => !r.success).length,
+              results
+            })
+          }
+        });
+
+        logger.info(`Advanced batch job ${batchJob.id} completed successfully`);
+      } catch (error) {
+        logger.error(`Advanced batch job ${batchJob.id} failed:`, error);
+        await prisma.job.update({
+          where: { id: batchJob.id },
+          data: {
+            status: 'FAILED',
+            completedAt: new Date(),
+            error: error.message
+          }
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        jobId: batchJob.id,
+        status: 'PENDING',
+        message: 'Advanced batch processing started',
+        totalFiles: mediaIds.length,
+        operations,
+        options
+      }
+    });
+  } catch (error) {
+    logger.error('Advanced batch processing failed:', error);
+    throw new ValidationError(`Advanced batch processing failed: ${error.message}`);
+  }
+});
+
 // ML Pipeline Status
 export const getMLStatus = asyncHandler(async (req: Request, res: Response) => {
   const currentUser = req.user;
@@ -524,22 +871,30 @@ export const getMLStatus = asyncHandler(async (req: Request, res: Response) => {
       where: {
         userId: currentUser.id,
         type: {
-          in: ['FACE_DETECTION', 'TRANSCRIPTION', 'BATCH_PROCESSING']
+          in: ['FACE_DETECTION', 'TRANSCRIPTION', 'BATCH_PROCESSING', 'VIDEO_PROCESSING']
         }
       },
       orderBy: { createdAt: 'desc' },
       take: 10
     });
 
+    // Get ML system status
+    const systemStatus = await mlModelManager.getSystemStatus();
+    const config = await mlModelManager.getConfiguration();
+
     res.json({
       success: true,
       data: {
         statistics: stats,
         recentJobs,
+        systemStatus,
+        config,
         services: {
-          faceDetection: 'available',
+          faceDetection: systemStatus.isHealthy ? 'available' : 'degraded',
           audioTranscription: 'available',
-          batchProcessing: 'available'
+          videoProcessing: 'available',
+          batchProcessing: 'available',
+          modelManagement: 'available'
         }
       }
     });

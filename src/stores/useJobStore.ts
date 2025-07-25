@@ -82,102 +82,12 @@ interface JobStore {
   addJob: (job: Omit<Job, 'id' | 'createdAt'>) => void;
   updateJobStatus: (id: string, status: Job['status'], progress?: number) => void;
   removeJob: (id: string) => void;
+  deleteJob: (jobId: string) => void;
   clearError: () => void;
 }
 
 export const useJobStore = create<JobStore>((set, get) => ({
-  jobs: [
-    {
-      id: 'job-123',
-      name: 'Video Analysis - Sample.mp4',
-      status: 'completed',
-      type: 'single',
-      priority: 'normal',
-      mediaFiles: [
-        {
-          id: 'media-001',
-          name: 'sample.mp4',
-          type: 'video',
-          size: 157286400, // ~150MB
-          duration: 1800, // 30 minutes
-          format: 'mp4',
-          uploadedAt: new Date('2024-01-15T10:30:00'),
-          thumbnailUrl: 'https://trae-api-us.mchost.guru/api/ide/v1/text_to_image?prompt=video%20thumbnail%20preview%20frame&image_size=landscape_16_9',
-          url: '/uploads/sample.mp4'
-        }
-      ],
-      results: [
-        {
-          id: 'result-001',
-          type: 'person_recognition',
-          confidence: 0.95,
-          data: {
-            personId: 'person-001',
-            name: 'Person_001',
-            detectedFeatures: ['face', 'body', 'clothing']
-          },
-          timestamp: 120,
-          boundingBox: { x: 100, y: 50, width: 200, height: 300 }
-        }
-      ],
-      progress: 100,
-      gpuInstanceId: 'gpu-001',
-      createdAt: new Date('2024-01-15T10:30:00'),
-      startedAt: new Date('2024-01-15T10:31:00'),
-      completedAt: new Date('2024-01-15T10:45:00'),
-      estimatedDuration: 900,
-      actualDuration: 840,
-      cost: {
-        estimated: 0.35,
-        actual: 0.32,
-        currency: 'EUR'
-      },
-      settings: {
-        enablePersonRecognition: true,
-        enableObjectDetection: true,
-        enableTranscription: true,
-        enableNsfwAnalysis: true,
-        transcriptionLanguage: 'de',
-        confidenceThreshold: 0.8
-      }
-    },
-    {
-      id: 'job-456',
-      name: 'Batch Processing - Photo Set',
-      status: 'processing',
-      type: 'batch',
-      priority: 'high',
-      mediaFiles: [
-        {
-          id: 'media-002',
-          name: 'photo1.jpg',
-          type: 'image',
-          size: 5242880, // 5MB
-          format: 'jpg',
-          uploadedAt: new Date('2024-01-15T11:00:00'),
-          thumbnailUrl: 'https://trae-api-us.mchost.guru/api/ide/v1/text_to_image?prompt=portrait%20photo%20thumbnail&image_size=square',
-          url: '/uploads/photo1.jpg'
-        }
-      ],
-      results: [],
-      progress: 45,
-      gpuInstanceId: 'gpu-001',
-      createdAt: new Date('2024-01-15T11:00:00'),
-      startedAt: new Date('2024-01-15T11:02:00'),
-      estimatedDuration: 600,
-      cost: {
-        estimated: 0.25,
-        currency: 'EUR'
-      },
-      settings: {
-        enablePersonRecognition: true,
-        enableObjectDetection: false,
-        enableTranscription: false,
-        enableNsfwAnalysis: true,
-        confidenceThreshold: 0.85
-      }
-    }
-  ],
+  jobs: [],
   batchJobs: [],
   selectedJob: null,
   isLoading: false,
@@ -266,46 +176,45 @@ export const useJobStore = create<JobStore>((set, get) => ({
     }));
   },
 
-  deleteJob: (id) => {
-    set((state) => ({
-      jobs: state.jobs.filter(job => job.id !== id),
-      selectedJob: state.selectedJob?.id === id ? null : state.selectedJob
-    }));
-  },
+
 
   fetchJobs: async () => {
     set({ isLoading: true, error: null });
     try {
-      const response = await apiService.makeRequest('/test');
-      if (response.success && response.data?.mockJobs) {
-        // Convert API data to our format
-        const apiJobs = response.data.mockJobs.map((job: any) => ({
+      const response = await apiService.getJobs();
+      if (response.success && response.data) {
+        // Use real API data from /jobs endpoint
+        const apiJobs: Job[] = response.data.jobs?.map((job: any) => ({
           id: job.id,
-          type: job.type,
-          status: job.status,
-          progress: job.status === 'completed' ? 100 : job.status === 'processing' ? 75 : 0,
-          mediaFiles: [{
-            id: `media-${job.id}`,
-            filename: `${job.type}_sample.mp4`,
-            originalName: `${job.type}_sample.mp4`,
-            mimeType: 'video/mp4',
-            size: 15728640,
-            uploadedAt: new Date().toISOString()
-          }],
-          results: job.status === 'completed' ? [{
-            id: `result-${job.id}`,
-            type: job.type,
-            confidence: 0.95,
-            data: { detected: true },
-            createdAt: new Date().toISOString()
-          }] : [],
-          createdAt: new Date(),
-          estimatedCompletion: job.status === 'processing' ? new Date(Date.now() + 300000) : undefined
-        }));
+          name: job.name || `${job.type} Job`,
+          type: job.type || 'single' as const,
+          status: job.status as 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled',
+          priority: job.priority || 'normal' as const,
+          progress: job.progress || (job.status === 'completed' ? 100 : job.status === 'processing' ? 75 : 0),
+          mediaFiles: job.mediaFiles || [],
+          results: job.results || [],
+          createdAt: new Date(job.createdAt),
+          startedAt: job.startedAt ? new Date(job.startedAt) : undefined,
+          completedAt: job.completedAt ? new Date(job.completedAt) : undefined,
+          estimatedDuration: job.estimatedDuration || 300,
+          actualDuration: job.actualDuration,
+          cost: job.cost || {
+            estimated: 0.25,
+            currency: 'EUR'
+          },
+          settings: job.settings || {
+            enablePersonRecognition: true,
+            enableObjectDetection: false,
+            enableTranscription: false,
+            enableNsfwAnalysis: false,
+            confidenceThreshold: 0.8
+          },
+          gpuInstanceId: job.gpuInstanceId
+        })) || [];
         set({ jobs: apiJobs, isLoading: false });
       } else {
-        // Fallback to existing mock data if API fails
-        set({ isLoading: false });
+        // If no real data available, clear jobs array
+        set({ jobs: [], isLoading: false });
       }
     } catch (error) {
       set({ 
@@ -324,5 +233,23 @@ export const useJobStore = create<JobStore>((set, get) => ({
 
   clearError: () => {
     set({ error: null });
+  },
+
+  addJob: (job) => {
+    const newJob: Job = {
+      ...job,
+      id: `job-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      createdAt: new Date()
+    };
+    set((state) => ({
+      jobs: [...state.jobs, newJob]
+    }));
+  },
+
+  deleteJob: (jobId: string) => {
+    set((state) => ({
+      jobs: state.jobs.filter(job => job.id !== jobId),
+      selectedJob: state.selectedJob?.id === jobId ? null : state.selectedJob
+    }));
   }
 }));

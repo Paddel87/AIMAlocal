@@ -131,12 +131,14 @@ app.get('/health', async (req, res) => {
     await db.$queryRaw`SELECT 1`;
     
     // Check Redis connection (non-blocking)
-    let redisHealth;
+    let redisHealth: { status: string; error?: string };
     try {
       redisHealth = await Promise.race([
         redisManager.healthCheck(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Redis timeout')), 2000))
-      ]);
+        new Promise<{ status: string; error?: string }>((_, reject) => 
+          setTimeout(() => reject(new Error('Redis timeout')), 2000)
+        )
+      ]) as { status: string; error?: string };
     } catch (error) {
       redisHealth = { status: 'unhealthy', error: 'Connection timeout or unavailable' };
     }

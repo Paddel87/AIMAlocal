@@ -354,7 +354,7 @@ export default function PersonDossiers() {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Search persons by name or characteristics..."
+            placeholder="Personen nach Name oder Eigenschaften suchen..."
             value={searchQuery}
             onChange={(e) => searchPersons(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -577,7 +577,7 @@ export default function PersonDossiers() {
                     type="text"
                     value={newPersonName}
                     onChange={(e) => setNewPersonName(e.target.value)}
-                    placeholder="Enter person name..."
+                    placeholder="Personenname eingeben..."
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>

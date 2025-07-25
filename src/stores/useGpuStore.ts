@@ -43,71 +43,18 @@ interface GpuStore {
   
   // Actions
   fetchInstances: () => Promise<void>;
+  fetchGpuInstances: () => Promise<void>;
   selectInstance: (instance: GpuInstance) => void;
   updateInstanceStatus: (id: string, status: GpuInstance['status']) => void;
   addInstance: (instance: Omit<GpuInstance, 'id'>) => void;
   removeInstance: (id: string) => void;
   clearError: () => void;
+  generateClusters: () => void;
 }
 
 export const useGpuStore = create<GpuStore>((set, get) => ({
-  instances: [
-    {
-      id: 'gpu-001',
-      name: 'NVIDIA RTX 4090 #1',
-      status: 'online',
-      type: 'RTX 4090',
-      memory: {
-        total: 24576,
-        used: 8192,
-        available: 16384
-      },
-      utilization: 35,
-      temperature: 72,
-      powerUsage: 320,
-      location: 'EU-West-1',
-      cost: {
-        perHour: 2.50,
-        currency: 'EUR'
-      },
-      capabilities: ['CUDA', 'ML Training', 'Video Processing', 'Face Recognition'],
-      currentJobs: ['job-123', 'job-456'],
-      lastHeartbeat: new Date()
-    },
-    {
-      id: 'gpu-002',
-      name: 'NVIDIA RTX 4090 #2',
-      status: 'busy',
-      type: 'RTX 4090',
-      memory: {
-        total: 24576,
-        used: 22000,
-        available: 2576
-      },
-      utilization: 89,
-      temperature: 78,
-      powerUsage: 380,
-      location: 'EU-West-1',
-      cost: {
-        perHour: 2.50,
-        currency: 'EUR'
-      },
-      capabilities: ['CUDA', 'ML Training', 'Video Processing', 'Face Recognition'],
-      currentJobs: ['job-789'],
-      lastHeartbeat: new Date()
-    }
-  ],
-  clusters: [
-    {
-      id: 'cluster-001',
-      name: 'EU Production Cluster',
-      instances: [],
-      totalCapacity: 100,
-      availableCapacity: 65,
-      region: 'EU-West-1',
-      status: 'active'
-    }
-  ],
+  instances: [],
+  clusters: [],
   selectedInstance: null,
   isLoading: false,
   error: null,
@@ -115,28 +62,36 @@ export const useGpuStore = create<GpuStore>((set, get) => ({
   fetchInstances: async () => {
     set({ isLoading: true, error: null });
     try {
-      const response = await apiService.makeRequest('/test');
-      if (response.success && response.data?.mockGpuInstances) {
-        // Convert API data to our format
-        const apiInstances = response.data.mockGpuInstances.map((instance: any) => ({
+      const response = await apiService.makeRequest('/gpu');
+      if (response.success && response.data) {
+        // Use real API data from /gpu endpoint
+        const apiInstances: GpuInstance[] = response.data.instances?.map((instance: any) => ({
           id: instance.id,
-          name: `${instance.type} Instance`,
-          status: instance.status,
-          type: instance.type,
-          memory: { total: 24576, used: 8192, available: 16384 },
-          utilization: instance.status === 'busy' ? 89 : 35,
-          temperature: instance.status === 'busy' ? 78 : 72,
-          powerUsage: instance.status === 'busy' ? 380 : 320,
-          location: 'EU-West-1',
-          cost: { perHour: 2.50, currency: 'EUR' },
-          capabilities: ['CUDA', 'ML Training', 'Video Processing', 'Face Recognition'],
-          currentJobs: instance.status === 'busy' ? ['job-789'] : ['job-123', 'job-456'],
-          lastHeartbeat: new Date()
-        }));
+          name: instance.name || `${instance.gpuType} Instance`,
+          status: instance.status as 'online' | 'offline' | 'busy' | 'maintenance',
+          type: instance.gpuType || instance.type || 'Unknown',
+          memory: instance.memory || {
+            total: instance.memoryInGb ? instance.memoryInGb * 1024 : 24576,
+            used: instance.memoryUsed || 8192,
+            available: (instance.memoryInGb ? instance.memoryInGb * 1024 : 24576) - (instance.memoryUsed || 8192)
+          },
+          utilization: instance.utilization || (instance.status === 'busy' ? 89 : 35),
+          temperature: instance.temperature || (instance.status === 'busy' ? 78 : 72),
+          powerUsage: instance.powerUsage || (instance.status === 'busy' ? 380 : 320),
+          location: instance.location || instance.region || 'Unknown',
+          cost: instance.cost || {
+            perHour: instance.costPerHour || 2.50,
+            currency: 'EUR'
+          },
+          capabilities: instance.capabilities || ['CUDA', 'ML Training', 'Video Processing', 'Face Recognition'],
+          currentJobs: instance.currentJobs || [],
+          lastHeartbeat: instance.lastHeartbeat ? new Date(instance.lastHeartbeat) : new Date()
+        })) || [];
         set({ instances: apiInstances, isLoading: false });
+        get().generateClusters();
       } else {
-        // Fallback to existing mock data if API fails
-        set({ isLoading: false });
+        // If no real data available, clear instances array
+        set({ instances: [], isLoading: false });
       }
     } catch (error) {
       set({ 
@@ -144,6 +99,10 @@ export const useGpuStore = create<GpuStore>((set, get) => ({
         error: error instanceof Error ? error.message : 'Failed to fetch instances' 
       });
     }
+  },
+
+  fetchGpuInstances: async () => {
+    return get().fetchInstances();
   },
 
   selectInstance: (instance) => {
@@ -178,5 +137,42 @@ export const useGpuStore = create<GpuStore>((set, get) => ({
 
   clearError: () => {
     set({ error: null });
+  },
+
+  generateClusters: () => {
+    const { instances } = get();
+    if (instances.length === 0) {
+      set({ clusters: [] });
+      return;
+    }
+
+    // Group instances by region/location
+    const regionGroups = instances.reduce((groups, instance) => {
+      const region = instance.location || 'Unknown Region';
+      if (!groups[region]) {
+        groups[region] = [];
+      }
+      groups[region].push(instance);
+      return groups;
+    }, {} as Record<string, GpuInstance[]>);
+
+    // Create clusters from region groups
+    const clusters: GpuCluster[] = Object.entries(regionGroups).map(([region, regionInstances], index) => {
+      const totalCapacity = regionInstances.length * 100; // Assume 100 capacity per instance
+      const busyInstances = regionInstances.filter(i => i.status === 'busy').length;
+      const availableCapacity = totalCapacity - (busyInstances * 100);
+      
+      return {
+        id: `cluster-${String(index + 1).padStart(3, '0')}`,
+        name: `${region} Cluster`,
+        instances: regionInstances,
+        totalCapacity,
+        availableCapacity,
+        region,
+        status: regionInstances.some(i => i.status === 'online' || i.status === 'busy') ? 'active' : 'inactive'
+      };
+    });
+
+    set({ clusters });
   }
 }));

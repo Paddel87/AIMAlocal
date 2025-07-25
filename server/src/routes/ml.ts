@@ -4,6 +4,12 @@ import {
   transcribeAudio,
   recognizeFaces,
   processBatch,
+  processVideo,
+  getModelStatus,
+  updateMLConfiguration,
+  optimizeModels,
+  exportMLData,
+  processBatchAdvanced,
   getAnalysisResults,
   getMLStatus
 } from '../controllers/mlController';
@@ -21,6 +27,57 @@ const batchProcessingSchema = z.object({
   })
 });
 
+const advancedBatchProcessingSchema = z.object({
+  body: z.object({
+    mediaIds: z.array(z.string().uuid()).min(1).max(100),
+    operations: z.array(z.enum(['face_detection', 'transcription', 'video_processing'])).min(1),
+    options: z.object({
+      extractFrames: z.boolean().optional(),
+      frameInterval: z.number().min(1).optional(),
+      maxFrames: z.number().min(1).max(1000).optional(),
+      detectFaces: z.boolean().optional(),
+      transcribeAudio: z.boolean().optional()
+    }).optional()
+  })
+});
+
+const videoProcessingSchema = z.object({
+  body: z.object({
+    extractFrames: z.boolean().optional(),
+    frameInterval: z.number().min(1).optional(),
+    maxFrames: z.number().min(1).max(1000).optional(),
+    detectFaces: z.boolean().optional(),
+    transcribeAudio: z.boolean().optional()
+  })
+});
+
+const mlConfigurationSchema = z.object({
+  body: z.object({
+    config: z.object({
+      faceDetection: z.object({
+        confidenceThreshold: z.number().min(0).max(1).optional(),
+        maxFaces: z.number().min(1).optional(),
+        modelType: z.enum(['fast', 'accurate']).optional()
+      }).optional(),
+      audioTranscription: z.object({
+        model: z.enum(['tiny', 'base', 'small', 'medium', 'large']).optional(),
+        language: z.string().optional(),
+        temperature: z.number().min(0).max(1).optional()
+      }).optional(),
+      videoProcessing: z.object({
+        maxFrameRate: z.number().min(1).max(60).optional(),
+        maxResolution: z.enum(['480p', '720p', '1080p']).optional(),
+        compressionQuality: z.number().min(1).max(100).optional()
+      }).optional(),
+      performance: z.object({
+        maxConcurrentJobs: z.number().min(1).max(10).optional(),
+        timeoutMs: z.number().min(1000).optional(),
+        enableGPU: z.boolean().optional()
+      }).optional()
+    })
+  })
+});
+
 const transcriptionQuerySchema = z.object({
   query: z.object({
     language: z.string().optional()
@@ -35,7 +92,7 @@ const recognitionQuerySchema = z.object({
 
 const analysisQuerySchema = z.object({
   query: z.object({
-    type: z.enum(['FACE_DETECTION', 'TRANSCRIPTION', 'FACE_RECOGNITION']).optional()
+    type: z.enum(['FACE_DETECTION', 'TRANSCRIPTION', 'FACE_RECOGNITION', 'VIDEO_PROCESSING']).optional()
   })
 });
 
@@ -72,6 +129,19 @@ router.post(
   transcribeAudio
 );
 
+// Video Processing Routes
+/**
+ * @route POST /api/ml/video/process/:mediaId
+ * @desc Process video with frame extraction, face detection, and transcription
+ * @access Private
+ */
+router.post(
+  '/video/process/:mediaId',
+  authenticate,
+  validate(videoProcessingSchema),
+  processVideo
+);
+
 // Batch Processing Routes
 /**
  * @route POST /api/ml/batch
@@ -83,6 +153,18 @@ router.post(
   authenticate,
   validate(batchProcessingSchema),
   processBatch
+);
+
+/**
+ * @route POST /api/ml/batch/advanced
+ * @desc Advanced batch processing with video support and options
+ * @access Private
+ */
+router.post(
+  '/batch/advanced',
+  authenticate,
+  validate(advancedBatchProcessingSchema),
+  processBatchAdvanced
 );
 
 // Analysis Results Routes
@@ -105,6 +187,41 @@ router.get(
  * @access Private
  */
 router.get('/status', authenticate, getMLStatus);
+
+// ML Model Management Routes (Admin only)
+/**
+ * @route GET /api/ml/models/status
+ * @desc Get ML model status and performance metrics
+ * @access Admin
+ */
+router.get('/models/status', authenticate, requireRole('ADMIN'), getModelStatus);
+
+/**
+ * @route PUT /api/ml/models/configuration
+ * @desc Update ML pipeline configuration
+ * @access Admin
+ */
+router.put(
+  '/models/configuration',
+  authenticate,
+  requireRole('ADMIN'),
+  validate(mlConfigurationSchema),
+  updateMLConfiguration
+);
+
+/**
+ * @route POST /api/ml/models/optimize
+ * @desc Optimize ML models for better performance
+ * @access Admin
+ */
+router.post('/models/optimize', authenticate, requireRole('ADMIN'), optimizeModels);
+
+/**
+ * @route GET /api/ml/models/export
+ * @desc Export ML model data and metrics
+ * @access Admin
+ */
+router.get('/models/export', authenticate, requireRole('ADMIN'), exportMLData);
 
 // Admin Routes
 /**

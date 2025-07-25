@@ -67,14 +67,14 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     // Attach user to request
     req.user = user;
     
-    (logger as any).logAuth('token_verified', user.id, user.email, req.ip, true);
+    logger.info('Token verified', { userId: user.id, email: user.email, ip: req.ip });
     next();
   } catch (error) {
     if (error instanceof jwt.JsonWebTokenError) {
-      (logger as any).logAuth('invalid_token', undefined, undefined, req.ip, false);
+      logger.warn('Invalid token', { ip: req.ip });
       next(new AuthenticationError('Invalid token'));
     } else if (error instanceof jwt.TokenExpiredError) {
-      (logger as any).logAuth('token_expired', undefined, undefined, req.ip, false);
+      logger.warn('Token expired', { ip: req.ip });
       next(new AuthenticationError('Token expired'));
     } else {
       next(error);
@@ -128,7 +128,7 @@ export const authorize = (...roles: UserRole[]) => {
     }
 
     if (!roles.includes(req.user.role)) {
-      (logger as any).logAuth('unauthorized_access', req.user.id, req.user.email, req.ip, false);
+      logger.warn('Unauthorized access', { userId: req.user.id, email: req.user.email, ip: req.ip });
       return next(new AuthorizationError('Insufficient permissions'));
     }
 
@@ -158,7 +158,7 @@ export const selfOrAdmin = (userIdParam: string = 'userId') => {
       return next();
     }
 
-    (logger as any).logAuth('unauthorized_resource_access', req.user.id, req.user.email, req.ip, false);
+    logger.warn('Unauthorized resource access', { userId: req.user.id, email: req.user.email, ip: req.ip });
     return next(new AuthorizationError('Access denied'));
   };
 };
@@ -179,7 +179,7 @@ export const rateLimitByUser = (maxRequests: number, windowMs: number) => {
     }
     
     if (userRequests.count >= maxRequests) {
-      (logger as any).logSecurity('rate_limit_exceeded', 'medium', {
+      logger.warn('Rate limit exceeded', {
         userId: req.user?.id,
         ip: req.ip,
         endpoint: req.path,

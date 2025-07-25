@@ -11,13 +11,19 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  username  String   @unique
-  password  String
-  role      UserRole @default(PERSONAL)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String    @id @default(cuid())
+  email       String    @unique
+  username    String    @unique
+  firstName   String?
+  lastName    String?
+  password    String
+  role        UserRole  @default(PERSONAL)
+  status      String    @default("active")
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  preferences Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   // Relations
   jobs         Job[]
@@ -385,8 +391,9 @@ model WebhookDelivery {
 // Enums
 enum UserRole {
   PERSONAL
+  PRO
   ENTERPRISE
-  ADMINISTRATOR
+  ADMIN
 }
 
 enum JobStatus {

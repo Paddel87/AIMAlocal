@@ -1,0 +1,247 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Application logs from backend
+  - job_name: aima-backend
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: aima-backend
+          service: backend
+          environment: production
+          __path__: /var/log/app/backend/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            service: service
+            trace_id: trace_id
+            user_id: user_id
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      - labels:
+          level:
+          service:
+          trace_id:
+          user_id:
+
+  # Nginx access logs
+  - job_name: nginx-access
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx-access
+          service: nginx
+          log_type: access
+          environment: production
+          __path__: /var/log/nginx/access.log
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<remote_addr>[\w\.]+) - (?P<remote_user>\S+) \[(?P<time_local>[^\]]+)\] "(?P<method>\S+) (?P<path>\S+) (?P<protocol>\S+)" (?P<status>\d+) (?P<body_bytes_sent>\d+) "(?P<http_referer>[^"]*)" "(?P<http_user_agent>[^"]*)" "(?P<http_x_forwarded_for>[^"]*)" rt=(?P<request_time>[\d\.]+) uct="(?P<upstream_connect_time>[\d\.-]+)" uht="(?P<upstream_header_time>[\d\.-]+)" urt="(?P<upstream_response_time>[\d\.-]+)"'
+      - timestamp:
+          source: time_local
+          format: 02/Jan/2006:15:04:05 -0700
+      - labels:
+          method:
+          status:
+          remote_addr:
+      - metrics:
+          nginx_request_duration_seconds:
+            type: Histogram
+            description: "Nginx request duration in seconds"
+            source: request_time
+            config:
+              buckets: [0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+
+  # Nginx error logs
+  - job_name: nginx-error
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx-error
+          service: nginx
+          log_type: error
+          environment: production
+          __path__: /var/log/nginx/error.log
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[(?P<level>\w+)\] (?P<pid>\d+)#(?P<tid>\d+): (?P<message>.*)'
+      - timestamp:
+          source: timestamp
+          format: 2006/01/02 15:04:05
+      - labels:
+          level:
+          pid:
+
+  # PostgreSQL logs
+  - job_name: postgres
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: postgres
+          service: postgres
+          environment: production
+          __path__: /var/log/postgresql/*.log
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \w+) \[(?P<pid>\d+)\] (?P<level>\w+): (?P<message>.*)'
+      - timestamp:
+          source: timestamp
+          format: 2006-01-02 15:04:05.000 MST
+      - labels:
+          level:
+          pid:
+
+  # Redis logs
+  - job_name: redis
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: redis
+          service: redis
+          environment: production
+          __path__: /var/log/redis/*.log
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<pid>\d+):(?P<role>\w+) (?P<timestamp>\d{2} \w{3} \d{4} \d{2}:\d{2}:\d{2}\.\d{3}) (?P<level>[\*\#\-\.]) (?P<message>.*)'
+      - timestamp:
+          source: timestamp
+          format: 02 Jan 2006 15:04:05.000
+      - labels:
+          level:
+          role:
+          pid:
+
+  # Docker container logs
+  - job_name: docker
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          service: docker
+          environment: production
+          __path__: /var/log/docker/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: time
+            level: level
+            message: msg
+            container_name: attrs.name
+            container_id: attrs.id
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      - labels:
+          level:
+          container_name:
+
+  # System logs (syslog)
+  - job_name: syslog
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: syslog
+          service: system
+          environment: production
+          __path__: /var/log/host/syslog
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\w{3} \d{1,2} \d{2}:\d{2}:\d{2}) (?P<hostname>\S+) (?P<service>\S+)(\[(?P<pid>\d+)\])?: (?P<message>.*)'
+      - timestamp:
+          source: timestamp
+          format: Jan 2 15:04:05
+      - labels:
+          hostname:
+          service:
+          pid:
+
+  # Application error logs with special handling
+  - job_name: aima-errors
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: aima-errors
+          service: backend
+          log_type: error
+          environment: production
+          __path__: /var/log/app/backend/error.log
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            error: error
+            stack: stack
+            trace_id: trace_id
+            user_id: user_id
+            request_id: request_id
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      - labels:
+          level:
+          trace_id:
+          user_id:
+          request_id:
+      - output:
+          source: message
+      # Alert on errors
+      - match:
+          selector: '{level="error"}'
+          stages:
+            - metrics:
+                error_total:
+                  type: Counter
+                  description: "Total number of errors"
+                  config:
+                    action: inc
+
+  # Security logs
+  - job_name: security
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: security
+          service: security
+          environment: production
+          __path__: /var/log/app/security/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            event_type: event_type
+            user_id: user_id
+            ip_address: ip_address
+            user_agent: user_agent
+            success: success
+            message: message
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      - labels:
+          event_type:
+          user_id:
+          ip_address:
+          success:

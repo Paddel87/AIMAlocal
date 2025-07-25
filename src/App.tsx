@@ -8,6 +8,8 @@ import PersonDossiers from './pages/PersonDossiers';
 import ModelManagement from './pages/ModelManagement';
 import StorageManagement from './pages/StorageManagement';
 import MLDashboard from './pages/MLDashboard';
+import Settings from './pages/Settings';
+import Analytics from './pages/Analytics';
 
 function App() {
   return (
@@ -23,6 +25,8 @@ function App() {
             <Route path="models" element={<ModelManagement />} />
             <Route path="storage" element={<StorageManagement />} />
             <Route path="ml" element={<MLDashboard />} />
+            <Route path="analytics" element={<Analytics />} />
+            <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>
       </Router>

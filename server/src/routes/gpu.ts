@@ -7,6 +7,11 @@ import {
   terminateGpuInstance,
   getGpuInstanceMetrics,
   getGpuStats,
+  submitBatchJob,
+  getBatchJobStatus,
+  cancelBatchJob,
+  getBatchStats,
+  getGpuOffers,
 } from '../controllers/gpuController';
 import { authenticate, selfOrAdmin, proAndAbove } from '../middleware/auth';
 import { validate } from '../middleware/validation';
@@ -66,9 +71,37 @@ const getGpuMetricsSchema = z.object({
   }),
 });
 
+const submitBatchJobSchema = z.object({
+  body: z.object({
+    jobs: z.array(z.object({
+      type: z.string().min(1, 'Job type is required'),
+      data: z.record(z.any()),
+      priority: z.enum(['low', 'medium', 'high']).optional(),
+      estimatedDuration: z.number().int().min(1).optional(),
+    })).min(1, 'At least one job is required'),
+    priority: z.enum(['low', 'medium', 'high']).optional(),
+    estimatedDuration: z.number().int().min(1).optional(),
+  }),
+});
+
+const batchJobIdSchema = z.object({
+  params: z.object({
+    jobId: z.string().min(1, 'Job ID is required'),
+  }),
+});
+
+const getGpuOffersSchema = z.object({
+  query: z.object({
+    provider: z.nativeEnum(GpuProvider).optional(),
+    gpuType: z.string().optional(),
+    maxPrice: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+  }),
+});
+
 // Routes - Require PRO plan or above for GPU access
 router.get('/', authenticate, proAndAbove, validate(getGpuInstancesSchema), getGpuInstances);
 router.get('/stats', authenticate, proAndAbove, getGpuStats);
+router.get('/offers', authenticate, proAndAbove, validate(getGpuOffersSchema), getGpuOffers);
 router.get('/:id', authenticate, proAndAbove, validate(gpuInstanceIdSchema), getGpuInstanceById);
 router.get('/:id/metrics', 
   authenticate, 
@@ -94,5 +127,11 @@ router.delete('/:id',
   validate(gpuInstanceIdSchema), 
   terminateGpuInstance
 );
+
+// Batch Processing Routes
+router.post('/batch', authenticate, proAndAbove, validate(submitBatchJobSchema), submitBatchJob);
+router.get('/batch/stats', authenticate, proAndAbove, getBatchStats);
+router.get('/batch/:jobId', authenticate, proAndAbove, validate(batchJobIdSchema), getBatchJobStatus);
+router.delete('/batch/:jobId', authenticate, proAndAbove, validate(batchJobIdSchema), cancelBatchJob);
 
 export default router;

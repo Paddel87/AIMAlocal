@@ -15,7 +15,7 @@ global.IntersectionObserver = vi.fn(() => ({
   disconnect: vi.fn(),
   observe: vi.fn(),
   unobserve: vi.fn(),
-}));
+})) as any;
 
 // Mock ResizeObserver
 global.ResizeObserver = vi.fn(() => ({
@@ -46,7 +46,7 @@ global.WebSocket = vi.fn(() => ({
   addEventListener: vi.fn(),
   removeEventListener: vi.fn(),
   readyState: 1,
-}));
+})) as any;
 
 // Mock fetch
 global.fetch = vi.fn();

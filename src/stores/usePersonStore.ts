@@ -136,162 +136,7 @@ interface PersonStore {
 }
 
 export const usePersonStore = create<PersonStore>((set, get) => ({
-  persons: [
-    {
-      id: 'person-001',
-      currentName: 'Person_001',
-      nameHistory: [
-        {
-          name: 'Person_001',
-          changedAt: new Date('2024-01-15T10:30:00'),
-          changedBy: 'system'
-        }
-      ],
-      recognitions: [
-        {
-          id: 'rec-001',
-          jobId: 'job-123',
-          mediaFileId: 'media-001',
-          timestamp: 120,
-          confidence: 0.95,
-          boundingBox: { x: 100, y: 50, width: 200, height: 300 },
-          features: {
-            face: {
-              landmarks: [1, 2, 3, 4, 5],
-              encoding: [0.1, 0.2, 0.3],
-              emotions: {
-                happy: 0.8,
-                neutral: 0.2
-              }
-            },
-            body: {
-              pose: [1, 2, 3],
-              clothing: ['dress', 'heels'],
-              accessories: ['necklace']
-            }
-          },
-          detectedAt: new Date('2024-01-15T10:32:00')
-        }
-      ],
-      transcriptions: [
-        {
-          id: 'trans-001',
-          jobId: 'job-123',
-          mediaFileId: 'media-001',
-          text: 'Das ist ein Beispieltext für die Transkription.',
-          language: 'de',
-          confidence: 0.92,
-          startTime: 120,
-          endTime: 125,
-          speakerId: 'person-001',
-          keywords: ['Beispiel', 'Transkription'],
-          sentiment: {
-            score: 0.1,
-            label: 'neutral'
-          },
-          createdAt: new Date('2024-01-15T10:33:00')
-        }
-      ],
-      physicalCharacteristics: {
-        height: 165,
-        build: 'slim',
-        hairColor: 'brown',
-        eyeColor: 'blue',
-        tattoos: ['small rose on wrist'],
-        piercings: ['ears'],
-        scars: [],
-        distinctiveFeatures: ['dimples when smiling']
-      },
-      clothingHistory: [
-        {
-          jobId: 'job-123',
-          items: ['black dress', 'high heels', 'silver necklace'],
-          style: 'elegant',
-          materials: ['silk', 'leather', 'metal'],
-          detectedAt: new Date('2024-01-15T10:32:00')
-        }
-      ],
-      voiceProfile: {
-        characteristics: ['clear', 'medium pitch'],
-        languages: ['German', 'English'],
-        accent: 'Northern German',
-        speakingPatterns: ['measured pace', 'clear articulation']
-      },
-      behaviorAnalysis: {
-        movementPatterns: ['confident walk', 'expressive gestures'],
-        interactions: ['friendly', 'engaging'],
-        emotionalStates: {
-          happy: 0.6,
-          neutral: 0.3,
-          surprised: 0.1
-        },
-        activities: ['conversation', 'posing']
-      },
-      socialConnections: [],
-      nsfwData: {
-        activities: [],
-        preferences: [],
-        contexts: [],
-        restraintMethods: []
-      },
-      statistics: {
-        totalAppearances: 1,
-        totalDuration: 300,
-        firstSeen: new Date('2024-01-15T10:32:00'),
-        lastSeen: new Date('2024-01-15T10:37:00'),
-        averageConfidence: 0.95
-      },
-      createdAt: new Date('2024-01-15T10:30:00'),
-      updatedAt: new Date('2024-01-15T10:37:00')
-    },
-    {
-      id: 'person-002',
-      currentName: 'Person_002',
-      nameHistory: [
-        {
-          name: 'Person_002',
-          changedAt: new Date('2024-01-15T11:00:00'),
-          changedBy: 'system'
-        }
-      ],
-      recognitions: [],
-      transcriptions: [],
-      physicalCharacteristics: {
-        tattoos: [],
-        piercings: [],
-        scars: [],
-        distinctiveFeatures: []
-      },
-      clothingHistory: [],
-      voiceProfile: {
-        characteristics: [],
-        languages: [],
-        speakingPatterns: []
-      },
-      behaviorAnalysis: {
-        movementPatterns: [],
-        interactions: [],
-        emotionalStates: {},
-        activities: []
-      },
-      socialConnections: [],
-      nsfwData: {
-        activities: [],
-        preferences: [],
-        contexts: [],
-        restraintMethods: []
-      },
-      statistics: {
-        totalAppearances: 0,
-        totalDuration: 0,
-        firstSeen: new Date('2024-01-15T11:00:00'),
-        lastSeen: new Date('2024-01-15T11:00:00'),
-        averageConfidence: 0
-      },
-      createdAt: new Date('2024-01-15T11:00:00'),
-      updatedAt: new Date('2024-01-15T11:00:00')
-    }
-  ],
+  persons: [],
   selectedPerson: null,
   searchQuery: '',
   isLoading: false,
@@ -489,42 +334,65 @@ export const usePersonStore = create<PersonStore>((set, get) => ({
   fetchPersons: async () => {
     set({ isLoading: true, error: null });
     try {
-      const response = await apiService.makeRequest('/test');
-      if (response.success && response.data?.mockPersons) {
-        // Convert API data to our format
-        const apiPersons = response.data.mockPersons.map((person: any) => ({
+      const response = await apiService.makeRequest('/persons');
+      if (response.success && response.data) {
+        // Use real API data from /persons endpoint
+        const apiPersons: PersonDossier[] = response.data.persons?.map((person: any) => ({
           id: person.id,
-          name: person.name,
-          recognitions: [{
-            id: `recognition-${person.id}`,
-            confidence: 0.95,
-            boundingBox: { x: 100, y: 100, width: 200, height: 200 },
-            mediaFileId: `media-${person.id}`,
-            timestamp: new Date().toISOString(),
-            verified: true
+          currentName: person.currentName || person.name || 'Unknown Person',
+          nameHistory: person.nameHistory || [{
+            name: person.currentName || person.name || 'Unknown Person',
+            changedAt: new Date(person.createdAt || Date.now()),
+            changedBy: 'system'
           }],
-          transcriptions: [{
-            id: `transcription-${person.id}`,
-            text: `Sample transcription for ${person.name}`,
-            confidence: 0.92,
-            language: 'de',
-            mediaFileId: `media-${person.id}`,
-            timestamp: new Date().toISOString(),
-            verified: false
-          }],
-          totalRecognitions: person.recognitions || 5,
-          totalTranscriptions: 3,
-          firstSeen: new Date(Date.now() - 86400000).toISOString(),
-          lastSeen: new Date().toISOString(),
-          tags: ['VIP', 'Frequent'],
-          notes: `Person dossier for ${person.name} - automatically generated from API data`,
-          createdAt: new Date(Date.now() - 86400000).toISOString(),
-          updatedAt: new Date().toISOString()
-        }));
+          recognitions: person.recognitions || [],
+          transcriptions: person.transcriptions || [],
+          physicalCharacteristics: person.physicalCharacteristics || {
+             height: null,
+             build: 'unknown',
+             hairColor: 'unknown',
+             eyeColor: 'unknown',
+             tattoos: [],
+             piercings: [],
+             scars: [],
+             distinctiveFeatures: []
+           },
+          clothingHistory: person.clothingHistory || [],
+          statistics: person.statistics || {
+              totalAppearances: person.recognitions?.length || 0,
+              totalDuration: 0,
+              firstSeen: new Date(person.createdAt || Date.now()),
+              lastSeen: new Date(person.updatedAt || Date.now()),
+              averageConfidence: 0
+            },
+           voiceProfile: person.voiceProfile || {
+              characteristics: [],
+              languages: [],
+              accent: 'unknown',
+              speakingPatterns: []
+            },
+           behaviorAnalysis: person.behaviorAnalysis || {
+              movementPatterns: [],
+              interactions: [],
+              emotionalStates: {},
+              activities: []
+            },
+           socialConnections: person.socialConnections || [],
+           nsfwData: person.nsfwData || {
+              activities: [],
+              preferences: [],
+              contexts: [],
+              restraintMethods: []
+            },
+           tags: person.tags || [],
+           notes: person.notes || '',
+           createdAt: new Date(person.createdAt || Date.now()),
+           updatedAt: new Date(person.updatedAt || Date.now())
+        })) || [];
         set({ persons: apiPersons, isLoading: false });
       } else {
-        // Fallback to existing mock data if API fails
-        set({ isLoading: false });
+        // If no real data available, clear persons array
+        set({ persons: [], isLoading: false });
       }
     } catch (error) {
       set({ 

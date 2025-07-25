@@ -160,7 +160,7 @@ export default function MainLayout() {
                   </div>
                   <input
                     type="text"
-                    placeholder="Search jobs, persons, or media..."
+                    placeholder="Jobs, Personen oder Medien suchen..."
                     className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>

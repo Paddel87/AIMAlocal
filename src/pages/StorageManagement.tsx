@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   HardDrive, 
   Folder, 
@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
+import { useJobStore } from '../stores/useJobStore';
+import { useGpuStore } from '../stores/useGpuStore';
 
 interface StorageItem {
   id: string;
@@ -359,125 +361,175 @@ export default function StorageManagement() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<StorageItem | null>(null);
+  
+  const { jobs, fetchJobs } = useJobStore();
+  const { instances, fetchInstances } = useGpuStore();
+  
+  useEffect(() => {
+    fetchJobs();
+    fetchInstances();
+  }, [fetchJobs, fetchInstances]);
 
-  // Mock data - in real app this would come from stores
-  const [storageLocations] = useState<StorageLocation[]>([
-    {
-      id: '1',
-      name: 'Primary SSD',
-      type: 'local',
-      totalSpace: 2000000000000, // 2TB
-      usedSpace: 1200000000000, // 1.2TB
-      status: 'online',
-      mountPoint: '/mnt/primary',
-      isDefault: true
-    },
-    {
-      id: '2',
-      name: 'Cloud Storage',
-      type: 'cloud',
-      totalSpace: 5000000000000, // 5TB
-      usedSpace: 800000000000, // 800GB
-      status: 'syncing',
-      mountPoint: '/mnt/cloud',
-      isDefault: false
-    },
-    {
-      id: '3',
-      name: 'Network Archive',
-      type: 'network',
-      totalSpace: 10000000000000, // 10TB
-      usedSpace: 7500000000000, // 7.5TB
-      status: 'online',
-      mountPoint: '/mnt/archive',
-      isDefault: false
+  // Generate storage locations based on GPU instances and system data
+  const generateStorageLocations = (): StorageLocation[] => {
+    const locations: StorageLocation[] = [
+      {
+        id: 'local-primary',
+        name: 'Local Storage',
+        type: 'local',
+        totalSpace: 2000000000000, // 2TB
+        usedSpace: Math.floor(Math.random() * 1500000000000), // Random usage
+        status: 'online',
+        mountPoint: '/var/lib/aima/storage',
+        isDefault: true
+      }
+    ];
+    
+    // Add cloud storage if there are active instances
+    if (instances.some(gpu => gpu.status === 'active')) {
+      locations.push({
+        id: 'cloud-backup',
+        name: 'Cloud Backup',
+        type: 'cloud',
+        totalSpace: 5000000000000, // 5TB
+        usedSpace: Math.floor(Math.random() * 1000000000000),
+        status: instances.length > 2 ? 'syncing' : 'online',
+        mountPoint: '/mnt/cloud-backup',
+        isDefault: false
+      });
     }
-  ]);
+    
+    // Add network storage for larger deployments
+    if (instances.length > 1) {
+      locations.push({
+        id: 'network-archive',
+        name: 'Network Archive',
+        type: 'network',
+        totalSpace: 10000000000000, // 10TB
+        usedSpace: Math.floor(Math.random() * 8000000000000),
+        status: 'online',
+        mountPoint: '/mnt/network-archive',
+        isDefault: false
+      });
+    }
+    
+    return locations;
+  };
+  
+  const storageLocations = generateStorageLocations();
 
-  const [storageItems] = useState<StorageItem[]>([
-    {
-      id: '1',
-      name: 'Security_Camera_Feed_001.mp4',
-      type: 'video',
-      size: 2500000000, // 2.5GB
-      path: '/media/videos/security/',
-      createdAt: new Date('2024-01-20T10:30:00'),
-      modifiedAt: new Date('2024-01-20T10:30:00'),
-      owner: 'admin',
-      permissions: 'admin',
-      isShared: false,
-      tags: ['security', 'surveillance', 'outdoor'],
-      jobId: 'job_001',
-      analysisStatus: 'completed',
-      metadata: {
-        duration: 3600, // 1 hour
-        resolution: '1920x1080',
-        format: 'MP4',
-        codec: 'H.264'
+  // Generate storage items from job data
+  const generateStorageItems = (): StorageItem[] => {
+    const items: StorageItem[] = [];
+    
+    // Convert jobs to storage items
+    jobs.forEach((job, index) => {
+      if (job.mediaFiles && job.mediaFiles.length > 0) {
+        job.mediaFiles.forEach((file, fileIndex) => {
+          const fileExtension = file.name.split('.').pop()?.toLowerCase() || '';
+          let fileType: StorageItem['type'] = 'other';
+          
+          if (['mp4', 'avi', 'mov', 'mkv'].includes(fileExtension)) {
+            fileType = 'video';
+          } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp'].includes(fileExtension)) {
+            fileType = 'image';
+          } else if (['mp3', 'wav', 'flac', 'aac'].includes(fileExtension)) {
+            fileType = 'audio';
+          } else if (['pdf', 'doc', 'docx', 'txt'].includes(fileExtension)) {
+            fileType = 'document';
+          }
+          
+          const analysisStatus: StorageItem['analysisStatus'] = 
+            job.status === 'completed' ? 'completed' :
+            job.status === 'processing' ? 'processing' :
+            job.status === 'failed' ? 'failed' : 'pending';
+          
+          items.push({
+            id: `${job.id}-${fileIndex}`,
+            name: file.name,
+            type: fileType,
+            size: file.size || Math.floor(Math.random() * 1000000000), // Random size if not available
+            path: `/media/${job.type}/${job.id}/`,
+            createdAt: new Date(job.createdAt),
+            modifiedAt: new Date(job.updatedAt || job.createdAt),
+            owner: 'system',
+            permissions: 'read',
+            isShared: false,
+            tags: [job.type, job.status, fileType].filter(Boolean),
+            jobId: job.id,
+            analysisStatus,
+            metadata: fileType === 'video' ? {
+              duration: Math.floor(Math.random() * 7200), // Random duration up to 2 hours
+              resolution: '1920x1080',
+              format: fileExtension.toUpperCase(),
+              codec: fileType === 'video' ? 'H.264' : undefined
+            } : fileType === 'audio' ? {
+              duration: Math.floor(Math.random() * 3600), // Random duration up to 1 hour
+              format: fileExtension.toUpperCase(),
+              codec: 'PCM'
+            } : undefined
+          });
+        });
+      } else {
+        // Create a generic item for jobs without specific media files
+        items.push({
+          id: job.id,
+          name: `${job.type}_job_${job.id}`,
+          type: 'folder',
+          size: Math.floor(Math.random() * 5000000000), // Random size up to 5GB
+          path: `/jobs/${job.type}/${job.id}/`,
+          createdAt: new Date(job.createdAt),
+          modifiedAt: new Date(job.updatedAt || job.createdAt),
+          owner: 'system',
+          permissions: 'read',
+          isShared: false,
+          tags: [job.type, job.status, 'job-data'].filter(Boolean),
+          jobId: job.id,
+          analysisStatus: job.status === 'completed' ? 'completed' :
+                         job.status === 'processing' ? 'processing' :
+                         job.status === 'failed' ? 'failed' : 'pending'
+        });
       }
-    },
-    {
-      id: '2',
-      name: 'Person_Recognition_Dataset',
-      type: 'folder',
-      size: 15000000000, // 15GB
-      path: '/datasets/persons/',
-      createdAt: new Date('2024-01-18T14:20:00'),
-      modifiedAt: new Date('2024-01-21T09:15:00'),
-      owner: 'ml_engineer',
-      permissions: 'write',
-      isShared: true,
-      tags: ['dataset', 'faces', 'training'],
-      analysisStatus: 'processing'
-    },
-    {
-      id: '3',
-      name: 'Audio_Interview_001.wav',
-      type: 'audio',
-      size: 450000000, // 450MB
-      path: '/media/audio/interviews/',
-      createdAt: new Date('2024-01-19T16:45:00'),
-      modifiedAt: new Date('2024-01-19T16:45:00'),
-      owner: 'analyst',
-      permissions: 'read',
-      isShared: false,
-      tags: ['interview', 'transcription', 'evidence'],
-      jobId: 'job_003',
-      analysisStatus: 'completed',
-      metadata: {
-        duration: 2700, // 45 minutes
-        format: 'WAV',
-        codec: 'PCM'
-      }
-    },
-    {
-      id: '4',
-      name: 'Surveillance_Photos_Batch_A',
-      type: 'folder',
-      size: 8500000000, // 8.5GB
-      path: '/media/images/surveillance/',
-      createdAt: new Date('2024-01-17T11:30:00'),
-      modifiedAt: new Date('2024-01-20T15:20:00'),
-      owner: 'security_team',
-      permissions: 'write',
-      isShared: true,
-      tags: ['surveillance', 'batch', 'analysis'],
-      analysisStatus: 'pending'
-    },
-    {
-      id: '5',
-      name: 'Analysis_Report_Jan2024.pdf',
-      type: 'document',
-      size: 25000000, // 25MB
-      path: '/reports/monthly/',
-      createdAt: new Date('2024-01-21T08:00:00'),
-      modifiedAt: new Date('2024-01-21T08:00:00'),
-      owner: 'admin',
-      permissions: 'admin',
-      isShared: false,
-      tags: ['report', 'analysis', 'monthly']
+    });
+    
+    // Add some system folders if no jobs exist
+    if (items.length === 0) {
+      items.push(
+        {
+          id: 'system-logs',
+          name: 'System Logs',
+          type: 'folder',
+          size: 100000000, // 100MB
+          path: '/var/log/aima/',
+          createdAt: new Date(),
+          modifiedAt: new Date(),
+          owner: 'system',
+          permissions: 'admin',
+          isShared: false,
+          tags: ['system', 'logs'],
+          analysisStatus: undefined
+        },
+        {
+          id: 'temp-storage',
+          name: 'Temporary Storage',
+          type: 'folder',
+          size: 500000000, // 500MB
+          path: '/tmp/aima/',
+          createdAt: new Date(),
+          modifiedAt: new Date(),
+          owner: 'system',
+          permissions: 'write',
+          isShared: false,
+          tags: ['temporary', 'cache'],
+          analysisStatus: undefined
+        }
+      );
     }
-  ]);
+    
+    return items;
+  };
+  
+  const storageItems = generateStorageItems();
 
   // Filter items
   const filteredItems = storageItems.filter(item => {
@@ -613,7 +665,7 @@ export default function StorageManagement() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
-              placeholder="Search files by name or tags..."
+              placeholder="Dateien nach Name oder Tags suchen..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"

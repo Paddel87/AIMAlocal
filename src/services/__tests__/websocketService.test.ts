@@ -7,10 +7,10 @@ describe('WebSocket Service', () => {
     expect(typeof websocketService.disconnect).toBe('function');
     expect(typeof websocketService.subscribe).toBe('function');
     expect(typeof websocketService.unsubscribe).toBe('function');
-    expect(typeof websocketService.isConnected).toBe('function');
+    expect(typeof websocketService.isConnected).toBe('boolean');
   });
   
   it('should return false for isConnected initially', () => {
-    expect(websocketService.isConnected()).toBe(false);
+    expect(websocketService.isConnected).toBe(false);
   });
 });

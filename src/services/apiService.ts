@@ -1,5 +1,3 @@
-import { toast } from 'sonner';
-
 const API_BASE_URL = 'http://localhost:3001/api';
 
 interface ApiResponse<T> {
@@ -39,7 +37,7 @@ interface JobStatus {
 }
 
 export class ApiService {
-  private async makeRequest<T>(
+  async makeRequest<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
@@ -65,7 +63,6 @@ export class ApiService {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      toast.error(`API Error: ${errorMessage}`);
       return {
         success: false,
         error: errorMessage,
@@ -100,7 +97,6 @@ export class ApiService {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      toast.error(`Upload Error: ${errorMessage}`);
       return {
         success: false,
         error: errorMessage,
@@ -204,7 +200,7 @@ export class ApiService {
 
   // File Upload
   async uploadMedia(file: File): Promise<ApiResponse<{ id: string; url: string }>> {
-    return this.uploadFile<{ id: string; url: string }>('/upload', file, 'media');
+    return this.uploadFileToEndpoint<{ id: string; url: string }>('/upload', file, 'media');
   }
 
   // Health Check

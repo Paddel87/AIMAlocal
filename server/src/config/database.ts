@@ -33,13 +33,13 @@ const createPrismaClient = () => {
   // Log database queries in development
   if (process.env.NODE_ENV === 'development') {
     prisma.$on('query', (e) => {
-      (logger as any).logDatabase('query', 'unknown', e.duration, undefined);
+      logger.debug('Database Query', { query: e.query, duration: e.duration });
     });
   }
 
   // Log database errors
   prisma.$on('error', (e) => {
-    (logger as any).logDatabase('error', 'unknown', undefined, new Error(e.message));
+    logger.error('Database Error', { message: e.message, timestamp: e.timestamp });
   });
 
   // Log database info

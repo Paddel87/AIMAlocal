@@ -51,7 +51,7 @@ export const redisHelpers = {
     try {
       const serialized = JSON.stringify(value);
       await redis.setex(key, ttl, serialized);
-      (logger as any).logCache('set', key);
+      logger.debug('Redis cache set', { key });
     } catch (error) {
       logger.error('Redis set error', { key, error });
       throw error;
@@ -63,10 +63,10 @@ export const redisHelpers = {
     try {
       const value = await redis.get(key);
       if (value) {
-        (logger as any).logCache('hit', key);
+        logger.debug('Redis cache hit', { key });
         return JSON.parse(value) as T;
       }
-      (logger as any).logCache('miss', key);
+      logger.debug('Redis cache miss', { key });
       return null;
     } catch (error) {
       logger.error('Redis get error', { key, error });
@@ -78,7 +78,7 @@ export const redisHelpers = {
   deleteCache: async (key: string) => {
     try {
       await redis.del(key);
-      (logger as any).logCache('del', key);
+      logger.debug('Redis cache delete', { key });
     } catch (error) {
       logger.error('Redis delete error', { key, error });
       throw error;
@@ -104,7 +104,7 @@ export const redisHelpers = {
     try {
       const serialized = JSON.stringify(value);
       await redis.setex(key, seconds, serialized);
-      (logger as any).logCache('set', key);
+      logger.debug('Redis cache set with expiry', { key });
     } catch (error) {
       logger.error('Redis setex error', { key, error });
       throw error;

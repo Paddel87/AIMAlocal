@@ -84,7 +84,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
   // Store refresh token in Redis
   await redis.setex(`refresh_token:${user.id}`, 7 * 24 * 60 * 60, refreshToken);
 
-  (logger as any).logAuth('user_registered', user.id, user.email, req.ip, true);
+  logger.info('User registered', { userId: user.id, email: user.email, ip: req.ip });
 
   res.status(201).json({
     success: true,
@@ -107,19 +107,19 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   });
 
   if (!user) {
-    (logger as any).logAuth('login_failed', undefined, email, req.ip, false);
+    logger.warn('Login failed', { email, ip: req.ip });
     throw new AuthenticationError('Invalid credentials');
   }
 
   if (!user.isActive) {
-    (logger as any).logAuth('login_failed_inactive', user.id, email, req.ip, false);
+    logger.warn('Login failed - inactive account', { userId: user.id, email, ip: req.ip });
     throw new AuthenticationError('Account is deactivated');
   }
 
   // Verify password
   const isValidPassword = await bcrypt.compare(password, user.password);
   if (!isValidPassword) {
-    (logger as any).logAuth('login_failed', user.id, email, req.ip, false);
+    logger.warn('Login failed - invalid password', { userId: user.id, email, ip: req.ip });
     throw new AuthenticationError('Invalid credentials');
   }
 
@@ -136,7 +136,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     data: { lastLoginAt: new Date() },
   });
 
-  (logger as any).logAuth('login_success', user.id, email, req.ip, true);
+  logger.info('Login successful', { userId: user.id, email, ip: req.ip });
 
   res.json({
     success: true,
@@ -198,7 +198,7 @@ export const refreshToken = asyncHandler(async (req: Request, res: Response) => 
     // Generate new access token
     const newAccessToken = generateToken(user.id, user.email, user.role);
 
-    (logger as any).logAuth('token_refreshed', user.id, user.email, req.ip, true);
+    logger.info('Token refreshed', { userId: user.id, email: user.email, ip: req.ip });
 
     res.json({
       success: true,
@@ -222,7 +222,7 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
   if (userId) {
     // Remove refresh token from Redis
     await redis.del(`refresh_token:${userId}`);
-    (logger as any).logAuth('logout', userId, req.user?.email, req.ip, true);
+    logger.info('User logged out', { userId, email: req.user?.email, ip: req.ip });
   }
 
   res.json({
@@ -297,7 +297,7 @@ export const updateProfile = asyncHandler(async (req: Request, res: Response) =>
     },
   });
 
-  (logger as any).logAuth('profile_updated', userId, req.user?.email, req.ip, true);
+  logger.info('Profile updated', { userId, email: req.user?.email, ip: req.ip });
 
   res.json({
     success: true,
@@ -327,7 +327,7 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
   // Verify current password
   const isValidPassword = await bcrypt.compare(currentPassword, user.password);
   if (!isValidPassword) {
-    (logger as any).logAuth('password_change_failed', userId, req.user?.email, req.ip, false);
+    logger.warn('Password change failed', { userId, email: req.user?.email, ip: req.ip });
     throw new AuthenticationError('Current password is incorrect');
   }
 
@@ -347,7 +347,7 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
   // Invalidate all refresh tokens
   await redis.del(`refresh_token:${userId}`);
 
-  (logger as any).logAuth('password_changed', userId, req.user?.email, req.ip, true);
+  logger.info('Password changed', { userId, email: req.user?.email, ip: req.ip });
 
   res.json({
     success: true,

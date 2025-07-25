@@ -161,8 +161,19 @@ class WebSocketService {
     this.send('subscribe_job', { jobId });
   }
 
+  // Unsubscribe from job updates
   unsubscribeFromJob(jobId: string): void {
     this.send('unsubscribe_job', { jobId });
+  }
+
+  // Generic subscribe method
+  subscribe(event: string, callback: EventCallback): void {
+    this.on(event, callback);
+  }
+
+  // Generic unsubscribe method
+  unsubscribe(event: string, callback?: EventCallback): void {
+    this.off(event, callback);
   }
 
   disconnect(): void {
